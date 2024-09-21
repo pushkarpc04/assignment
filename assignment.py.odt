@@ -1,0 +1,53 @@
+from flask import Flask, request, jsonify
+import sqlite3
+
+app = Flask(__name__)
+
+# Connect to the database
+conn = sqlite3.connect('seats.db')
+c = conn.cursor()
+
+# Create the seats table if it doesn't exist
+c.execute('''CREATE TABLE IF NOT EXISTS seats
+             (seat_number INTEGER PRIMARY KEY, is_booked INTEGER)''')
+
+# Initialize the seats table with all seats available
+for i in range(1, 81):
+    c.execute("INSERT INTO seats (seat_number, is_booked) VALUES (?, 0)", (i,))
+conn.commit()
+
+@app.route('/book', methods=['POST'])
+def book_seats():
+    num_seats = int(request.form['num_seats'])
+    booked_seats = []
+
+    # Find available seats
+    c.execute("SELECT seat_number FROM seats WHERE is_booked = 0")
+    available_seats = c.fetchall()
+
+    # Book seats in a row if possible
+    for i in range(0, len(available_seats), 7):
+        row_seats = available_seats[i:i+7]
+        if len(row_seats) >= num_seats:
+            for seat in row_seats[:num_seats]:
+                c.execute("UPDATE seats SET is_booked = 1 WHERE seat_number = ?", (seat[0],))
+                booked_seats.append(seat[0])
+            break
+
+    # If not enough seats in a row, book nearby seats
+    if len(booked_seats) < num_seats:
+        for seat in available_seats:
+            if len(booked_seats) >= num_seats:
+                break
+            c.execute("UPDATE seats SET is_booked = 1 WHERE seat_number = ?", (seat[0],))
+            booked_seats.append(seat[0])
+
+    conn.commit()
+
+    # Return the booked seats and the updated seat availability
+    c.execute("SELECT seat_number, is_booked FROM seats")
+    seats = c.fetchall()
+    return jsonify({'booked_seats': booked_seats, 'seats': seats})
+
+if __name__ == '__main__':
+    app.run(debug=True)
